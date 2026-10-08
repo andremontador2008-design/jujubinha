@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>blá blá blá – Jogo</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="game-page">
+    <div class="game-header">
+      <div class="game-title">blá blá blá</div>
+      <div class="hud">
+        <span id="lives">❤️ Vidas: 2</span>
+        <span id="level">🏁 Fase: 1</span>
+        <span id="score">⭐ 0</span>
+      </div>
+    </div>
+
+    <div class="canvas-wrapper">
+      <canvas id="gameCanvas" width="900" height="500"></canvas>
+      <div id="overlay" class="overlay">
+        <h2 id="overlayTitle">Pronto?</h2>
+        <p id="overlayMsg">Pressione ESPAÇO ou clique para começar</p>
+        <button class="btn-play" id="overlayBtn" style="font-size:1.1rem;padding:12px 30px;">Começar</button>
+      </div>
+    </div>
+
+    <div class="game-footer">
+      <a href="index.html" class="btn-small">← Menu</a>
+      <button class="btn-small" id="btnRestart">Reiniciar Fase</button>
+    </div>
+
+    <p class="instructions">
+      Controles: ← → ou A/D para andar • Espaço / ↑ / W para pular<br>
+      Evite bichinhos e espinhos • Chegue na princesa na 3ª fase!
+    </p>
+  </div>
+
+  <script>
+    // ============================================================
+    //  blá blá blá  –  Jogo simples estilo Super Mario World
+    //  Protagonista: Miles Morales
+    //  3 fases | 2 vidas | Princesa no final
+    // ============================================================
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const overlay = document.getElementById('overlay');
+    const overlayTitle = document.getElementById('overlayTitle');
+    const overlayMsg = document.getElementById('overlayMsg');
+    const overlayBtn = document.getElementById('overlayBtn');
+
+    // ---------- Estado do jogo ----------
+    let gameState = 'start'; // start | playing | dead | win | levelComplete
+    let currentLevel = 1;
+    let lives = 2;
+    let score = 0;
+    let cameraX = 0;
+    let keys = {};
+    let particles = [];
+
+    // ---------- Player (Miles Morales) ----------
+    const player = {
+      x: 80,
+      y: 300,
+      w: 32,
+      h: 40,
+      vx: 0,
+      vy: 0,
+      speed: 4.2,
+      jumpForce: -12.5,
+      onGround: false,
+      facing: 1, // 1 = direita, -1 = esquerda
+      invincible: 0 // frames de invencibilidade
+    };
+
+    // ---------- Física ----------
+    const GRAVITY = 0.55;
+    const FRICTION = 0.82;
+    const MAX_FALL = 14;
+
+    // ---------- Níveis ----------
+    const levels = {
+      1: {
+        width: 2200,
+        platforms: [
+          { x: 0, y: 420, w: 400, h: 80 },
+          { x: 450, y: 420, w: 200, h: 80 },
+          { x: 720, y: 360, w: 120, h: 20 },
+          { x: 900, y: 300, w: 140, h: 20 },
+          { x: 1100, y: 360, w: 100, h: 20 },
+          { x: 1250, y: 420, w: 300, h: 80 },
+          { x: 1600, y: 380, w: 150, h: 20 },
+          { x: 1800, y: 320, w: 180, h: 20 },
+          { x: 2050, y: 420, w: 200, h: 80 }
+        ],
+        enemies: [
+          { x: 500, y: 390, w: 28, h: 28, vx: 1.5, minX: 450, maxX: 630, type: 'bug' },
+          { x: 950, y: 270, w: 28, h: 28, vx: 1.2, minX: 900, maxX: 1020, type: 'spider' },
+          { x: 1300, y: 390, w: 28, h: 28, vx: -1.8, minX: 1250, maxX: 1520, type: 'bug' }
+        ],
+        spikes: [
+          { x: 650, y: 400, w: 40, h: 20 },
+          { x: 1550, y: 400, w: 40, h: 20 }
+        ],
+        goalX: 2100
+      },
+      2: {
+        width: 2800,
+        platforms: [
+          { x: 0, y: 420, w: 250, h: 80 },
+          { x: 320, y: 380, w: 100, h: 20 },
+          { x: 480, y: 320, w: 100, h: 20 },
+          { x: 640, y: 260, w: 120, h: 20 },
+          { x: 820, y: 320, w: 90, h: 20 },
+          { x: 970, y: 380, w: 110, h: 20 },
+          { x: 1140, y: 420, w: 180, h: 80 },
+          { x: 1400, y: 360, w: 100, h: 20 },
+          { x: 1580, y: 300, w: 130, h: 20 },
+          { x: 1780, y: 240, w: 100, h: 20 },
+          { x: 1950, y: 300, w: 120, h: 20 },
+          { x: 2150, y: 360, w: 140, h: 20 },
+          { x: 2360, y: 420, w: 500, h: 80 }
+        ],
+        enemies: [
+          { x: 350, y: 350, w: 28, h: 28, vx: 1.6, minX: 320, maxX: 400, type: 'spider' },
+          { x: 700, y: 230, w: 28, h: 28, vx: -1.4, minX: 640, maxX: 740, type: 'bug' },
+          { x: 1200, y: 390, w: 28, h: 28, vx: 2.0, minX: 1140, maxX: 1300, type: 'bug' },
+          { x: 1650, y: 270, w: 28, h: 28, vx: 1.5, minX: 1580, maxX: 1690, type: 'spider' },
+          { x: 2200, y: 330, w: 28, h: 28, vx: -1.7, minX: 2150, maxX: 2270, type: 'bug' }
+        ],
+        spikes: [
+          { x: 280, y: 400, w: 30, h: 20 },
+          { x: 1080, y: 400, w: 50, h: 20 },
+          { x: 1520, y: 400, w: 40, h: 20 },
+          { x: 1900, y: 400, w: 40, h: 20 }
+        ],
+        goalX: 2650
+      },
+      3: {
+        width: 3200,
+        platforms: [
+          { x: 0, y: 420, w: 200, h: 80 },
+          { x: 280, y: 360, w: 90, h: 20 },
+          { x: 430, y: 300, w: 90, h: 20 },
+          { x: 580, y: 240, w: 100, h: 20 },
+          { x: 750, y: 300, w: 80, h: 20 },
+          { x: 900, y: 360, w: 100, h: 20 },
+          { x: 1060, y: 420, w: 160, h: 80 },
+          { x: 1300, y: 340, w: 90, h: 20 },
+          { x: 1460, y: 280, w: 100, h: 20 },
+          { x: 1630, y: 220, w: 110, h: 20 },
+          { x: 1820, y: 280, w: 90, h: 20 },
+          { x: 1980, y: 340, w: 100, h: 20 },
+          { x: 2160, y: 400, w: 120, h: 20 },
+          { x: 2360, y: 340, w: 100, h: 20 },
+          { x: 2540, y: 280, w: 130, h: 20 },
+          { x: 2750, y: 420, w: 500, h: 80 }
+        ],
+        enemies: [
+          { x: 320, y: 330, w: 28, h: 28, vx: 1.8, minX: 280, maxX: 350, type: 'spider' },
+          { x: 620, y: 210, w: 28, h: 28, vx: -1.5, minX: 580, maxX: 660, type: 'bug' },
+          { x: 950, y: 330, w: 28, h: 28, vx: 1.6, minX: 900, maxX: 980, type: 'bug' },
+          { x: 1350, y: 310, w: 28, h: 28, vx: 2.0, minX: 1300, maxX: 1370, type: 'spider' },
+          { x: 1700, y: 190, w: 28, h: 28, vx: -1.7, minX: 1630, maxX: 1720, type: 'bug' },
+          { x: 2050, y: 310, w: 28, h: 28, vx: 1.9, minX: 1980, maxX: 2060, type: 'spider' },
+          { x: 2600, y: 250, w: 28, h: 28, vx: -1.5, minX: 2540, maxX: 2650, type: 'bug' }
+        ],
+        spikes: [
+          { x: 230, y: 400, w: 40, h: 20 },
+          { x: 850, y: 400, w: 40, h: 20 },
+          { x: 1240, y: 400, w: 50, h: 20 },
+          { x: 1760, y: 400, w: 40, h: 20 },
+          { x: 2300, y: 400, w: 50, h: 20 },
+          { x: 2700, y: 400, w: 40, h: 20 }
+        ],
+        goalX: 2950,
+        hasPrincess: true
+      }
+    };
+
+    let platforms = [];
+    let enemies = [];
+    let spikes = [];
+    let levelWidth = 2200;
+    let goalX = 2100;
+    let hasPrincess = false;
+
+    // ---------- Funções de nível ----------
+    function loadLevel(n) {
+      const lvl = levels[n];
+      platforms = JSON.parse(JSON.stringify(lvl.platforms));
+      enemies = JSON.parse(JSON.stringify(lvl.enemies));
+      spikes = JSON.parse(JSON.stringify(lvl.spikes || []));
+      levelWidth = lvl.width;
+      goalX = lvl.goalX;
+      hasPrincess = !!lvl.hasPrincess;
+
+      player.x = 80;
+      player.y = 300;
+      player.vx = 0;
+      player.vy = 0;
+      player.onGround = false;
+      player.invincible = 0;
+      cameraX = 0;
+      particles = [];
+    }
+
+    // ---------- Controles ----------
+    window.addEventListener('keydown', e => {
+      keys[e.code] = true;
+      if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.code)) {
+        e.preventDefault();
+      }
+      if (gameState === 'start' || gameState === 'levelComplete' || gameState === 'dead' || gameState === 'win') {
+        if (e.code === 'Space' || e.code === 'Enter') {
+          handleOverlayAction();
+        }
+      }
+    });
+    window.addEventListener('keyup', e => {
+      keys[e.code] = false;
+    });
+
+    overlayBtn.addEventListener('click', handleOverlayAction);
+    document.getElementById('btnRestart').addEventListener('click', () => {
+      if (gameState === 'playing' || gameState === 'dead') {
+        loadLevel(currentLevel);
+        gameState = 'playing';
+        hideOverlay();
+      }
+    });
+
+    function handleOverlayAction() {
+      if (gameState === 'start') {
+        currentLevel = 1;
+        lives = 2;
+        score = 0;
+        loadLevel(1);
+        gameState = 'playing';
+        hideOverlay();
+        updateHUD();
+      } else if (gameState === 'levelComplete') {
+        currentLevel++;
+        if (currentLevel > 3) {
+          gameState = 'win';
+          showOverlay('🎉 VOCÊ VENCEU!', 'Miles salvou a Princesa! Parabéns!', 'Jogar de novo');
+        } else {
+          loadLevel(currentLevel);
+          gameState = 'playing';
+          hideOverlay();
+          updateHUD();
+        }
+      } else if (gameState === 'dead') {
+        if (lives > 0) {
+          loadLevel(currentLevel);
+          gameState = 'playing';
+          hideOverlay();
+        } else {
+          currentLevel = 1;
+          lives = 2;
+          score = 0;
+          loadLevel(1);
+          gameState = 'playing';
+          hideOverlay();
+          updateHUD();
+        }
+      } else if (gameState === 'win') {
+        currentLevel = 1;
+        lives = 2;
+        score = 0;
+        loadLevel(1);
+        gameState = 'playing';
+        hideOverlay();
+        updateHUD();
+      }
+    }
+
+    function showOverlay(title, msg, btnText) {
+      overlayTitle.textContent = title;
+      overlayMsg.textContent = msg;
+      overlayBtn.textContent = btnText || 'Continuar';
+      overlay.classList.add('visible');
+    }
+
+    function hideOverlay() {
+      overlay.classList.remove('visible');
+    }
+
+    function updateHUD() {
+      document.getElementById('lives').textContent = '❤️ Vidas: ' + lives;
+      document.getElementById('level').textContent = '🏁 Fase: ' + currentLevel;
+      document.getElementById('score').textContent = '⭐ ' + score;
+    }
+
+    // ---------- Colisão AABB ----------
+    function rectsCollide(a, b) {
+      return a.x < b.x + b.w &&
+             a.x + a.w > b.x &&
+             a.y < b.y + b.h &&
+             a.y + a.h > b.y;
+    }
+
+    // ---------- Atualização do player ----------
+    function updatePlayer() {
+      if (keys['ArrowLeft'] || keys['KeyA']) {
+        player.vx = -player.speed;
+        player.facing = -1;
+      } else if (keys['ArrowRight'] || keys['KeyD']) {
+        player.vx = player.speed;
+        player.facing = 1;
+      } else {
+        player.vx *= FRICTION;
+        if (Math.abs(player.vx) < 0.1) player.vx = 0;
+      }
+
+      if ((keys['Space'] || keys['ArrowUp'] || keys['KeyW']) && player.onGround) {
+        player.vy = player.jumpForce;
+        player.onGround = false;
+      }
+
+      player.vy += GRAVITY;
+      if (player.vy > MAX_FALL) player.vy = MAX_FALL;
+
+      player.x += player.vx;
+      player.y += player.vy;
+
+      if (player.x < 0) player.x = 0;
+      if (player.x + player.w > levelWidth) player.x = levelWidth - player.w;
+
+      player.onGround = false;
+      for (const p of platforms) {
+        if (rectsCollide(player, p)) {
+          if (player.vy > 0 && player.y + player.h - player.vy <= p.y + 5) {
+            player.y = p.y - player.h;
+            player.vy = 0;
+            player.onGround = true;
+          }
+          else if (player.vx > 0 && player.x + player.w - player.vx <= p.x + 2) {
+            player.x = p.x - player.w;
+            player.vx = 0;
+          }
+          else if (player.vx < 0 && player.x - player.vx >= p.x + p.w - 2) {
+            player.x = p.x + p.w;
+            player.vx = 0;
+          }
+          else if (player.vy < 0 && player.y - player.vy >= p.y + p.h - 5) {
+            player.y = p.y + p.h;
+            player.vy = 0;
+          }
+        }
+      }
+
+      if (player.y > canvas.height + 50) {
+        die();
+      }
+
+      if (player.invincible > 0) player.invincible--;
+
+      cameraX = player.x - canvas.width / 3;
+      if (cameraX < 0) cameraX = 0;
+      if (cameraX > levelWidth - canvas.width) cameraX = levelWidth - canvas.width;
+    }
+
+    // ---------- Inimigos ----------
+    function updateEnemies() {
+      for (const e of enemies) {
+        e.x += e.vx;
+        if (e.x <= e.minX || e.x + e.w >= e.maxX) {
+          e.vx *= -1;
+        }
+
+        if (player.invincible <= 0 && rectsCollide(player, e)) {
+          if (player.vy > 0 && player.y + player.h - player.vy <= e.y + 10) {
+            const idx = enemies.indexOf(e);
+            if (idx > -1) enemies.splice(idx, 1);
+            player.vy = -8;
+            score += 100;
+            spawnParticles(e.x + e.w / 2, e.y + e.h / 2, '#48dbfb');
+            updateHUD();
+          } else {
+            die();
+          }
+        }
+      }
+    }
+
+    // ---------- Espinhos ----------
+    function checkSpikes() {
+      if (player.invincible > 0) return;
+      for (const s of spikes) {
+        if (rectsCollide(player, s)) {
+          die();
+          break;
+        }
+      }
+    }
+
+    // ---------- Meta / Princesa ----------
+    function checkGoal() {
+      if (player.x + player.w > goalX) {
+        if (currentLevel < 3) {
+          score += 500 * currentLevel;
+          updateHUD();
+          gameState = 'levelComplete';
+          showOverlay(
+            '✅ Fase ' + currentLevel + ' Completa!',
+            'Pontuação: ' + score + ' • Prepare-se para a próxima!',
+            'Próxima Fase'
+          );
+        } else {
+          score += 1000;
+          updateHUD();
+          gameState = 'win';
+          showOverlay(
+            '👑 PRINCESA SALVA!',
+            'Miles Morales resgatou a Princesa de Vestido Vermelho!\nPontuação final: ' + score,
+            'Jogar de novo'
+          );
+        }
+      }
+    }
+
+    function die() {
+      if (player.invincible > 0) return;
+      lives--;
+      updateHUD();
+      spawnParticles(player.x + player.w / 2, player.y + player.h / 2, '#e94560');
+      if (lives <= 0) {
+        gameState = 'dead';
+        showOverlay('💀 GAME OVER', 'Você perdeu todas as vidas... Tente novamente!', 'Recomeçar');
+      } else {
+        gameState = 'dead';
+        showOverlay('💔 Você perdeu uma vida!', 'Vidas restantes: ' + lives, 'Continuar');
+      }
+    }
+
+    // ---------- Partículas ----------
+    function spawnParticles(x, y, color) {
+      for (let i = 0; i < 12; i++) {
+        particles.push({
+          x, y,
+          vx: (Math.random() - 0.5) * 6,
+          vy: (Math.random() - 0.5) * 6 - 2,
+          life: 30 + Math.random() * 20,
+          color
+        });
+      }
+    }
+
+    function updateParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.15;
+        p.life--;
+        if (p.life <= 0) particles.splice(i, 1);
+      }
+    }
+
+    // ============================================================
+    //  DESENHO
+    // ============================================================
+
+    function drawBackground() {
+      const grad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      if (currentLevel === 1) {
+        grad.addColorStop(0, '#87CEEB');
+        grad.addColorStop(1, '#E0F7FA');
+      } else if (currentLevel === 2) {
+        grad.addColorStop(0, '#FF9A8B');
+        grad.addColorStop(0.5, '#FF6A88');
+        grad.addColorStop(1, '#FF99AC');
+      } else {
+        grad.addColorStop(0, '#2C3E50');
+        grad.addColorStop(0.6, '#4A69BD');
+        grad.addColorStop(1, '#6A89CC');
+      }
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      for (let i = 0; i < 8; i++) {
+        const cx = ((i * 350 - cameraX * 0.3) % (canvas.width + 200)) - 100;
+        const cy = 40 + (i % 3) * 35;
+        drawCloud(cx, cy);
+      }
+
+      ctx.fillStyle = currentLevel === 3 ? '#2d3436' : '#55a630';
+      ctx.beginPath();
+      ctx.moveTo(0, 480);
+      for (let i = 0; i < canvas.width + 50; i += 40) {
+        const hx = i + (cameraX * 0.15) % 40;
+        ctx.lineTo(hx, 460 + Math.sin(i * 0.02 + currentLevel) * 15);
+      }
+      ctx.lineTo(canvas.width, canvas.height);
+      ctx.lineTo(0, canvas.height);
+      ctx.fill();
+    }
+
+    function drawCloud(x, y) {
+      ctx.beginPath();
+      ctx.arc(x, y, 22, 0, Math.PI * 2);
+      ctx.arc(x + 25, y - 8, 28, 0, Math.PI * 2);
+      ctx.arc(x + 50, y, 20, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawPlatforms() {
+      for (const p of platforms) {
+        const sx = p.x - cameraX;
+        if (sx + p.w < 0 || sx > canvas.width) continue;
+
+        ctx.fillStyle = currentLevel === 3 ? '#636e72' : '#e17055';
+        ctx.fillRect(sx, p.y, p.w, p.h);
+
+        ctx.fillStyle = currentLevel === 3 ? '#b2bec3' : '#fdcb6e';
+        ctx.fillRect(sx, p.y, p.w, 8);
+
+        ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < p.w; i += 30) {
+          ctx.beginPath();
+          ctx.moveTo(sx + i, p.y + 8);
+          ctx.lineTo(sx + i, p.y + p.h);
+          ctx.stroke();
+        }
+      }
+    }
+
+    function drawSpikes() {
+      for (const s of spikes) {
+        const sx = s.x - cameraX;
+        if (sx + s.w < 0 || sx > canvas.width) continue;
+
+        ctx.fillStyle = '#d63031';
+        const spikesCount = Math.floor(s.w / 12);
+        for (let i = 0; i < spikesCount; i++) {
+          ctx.beginPath();
+          ctx.moveTo(sx + i * 12, s.y + s.h);
+          ctx.lineTo(sx + i * 12 + 6, s.y);
+          ctx.lineTo(sx + i * 12 + 12, s.y + s.h);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawEnemies() {
+      for (const e of enemies) {
+        const sx = e.x - cameraX;
+        if (sx + e.w < -20 || sx > canvas.width + 20) continue;
+
+        if (e.type === 'bug') {
+          ctx.fillStyle = '#00b894';
+          ctx.beginPath();
+          ctx.ellipse(sx + e.w / 2, e.y + e.h / 2 + 4, e.w / 2, e.h / 2 - 2, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#fff';
+          ctx.beginPath();
+          ctx.arc(sx + 8, e.y + 10, 5, 0, Math.PI * 2);
+          ctx.arc(sx + 20, e.y + 10, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = '#2d3436';
+          ctx.beginPath();
+          ctx.arc(sx + 9, e.y + 11, 2.5, 0, Math.PI * 2);
+          ctx.arc(sx + 21, e.y + 11, 2.5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#00b894';
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(sx + 10, e.y + 4);
+          ctx.lineTo(sx + 6, e.y - 4);
+          ctx.moveTo(sx + 18, e.y + 4);
+          ctx.lineTo(sx + 22, e.y - 4);
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = '#2d3436';
+          ctx.beginPath();
+          ctx.arc(sx + e.w / 2, e.y + e.h / 2, 12, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = '#2d3436';
+          ctx.lineWidth = 2.5;
+          for (let i = -1; i <= 1; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(sx + e.w / 2, e.y + e.h / 2);
+            ctx.lineTo(sx + e.w / 2 + i * 16, e.y + 4);
+            ctx.moveTo(sx + e.w / 2, e.y + e.h / 2);
+            ctx.lineTo(sx + e.w / 2 + i * 18, e.y + e.h - 2);
+            ctx.stroke();
+          }
+          ctx.fillStyle = '#e17055';
+          ctx.beginPath();
+          ctx.arc(sx + 10, e.y + 12, 3.5, 0, Math.PI * 2);
+          ctx.arc(sx + 18, e.y + 12, 3.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    function drawPlayer() {
+      const sx = player.x - cameraX;
+      const sy = player.y;
+
+      if (player.invincible > 0 && Math.floor(player.invincible / 4) % 2 === 0) return;
+
+      ctx.save();
+      if (player.facing === -1) {
+        ctx.translate(sx + player.w / 2, 0);
+        ctx.scale(-1, 1);
+        ctx.translate(-(sx + player.w / 2), 0);
+      }
+
+      // Torso
+      ctx.fillStyle = '#c0392b';
+      ctx.fillRect(sx + 6, sy + 12, 20, 18);
+
+      // Cabeça / máscara
+      ctx.fillStyle = '#2d3436';
+      ctx.beginPath();
+      ctx.ellipse(sx + 16, sy + 10, 12, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Olhos brancos do Miles
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.ellipse(sx + 11, sy + 9, 5, 6, -0.2, 0, Math.PI * 2);
+      ctx.ellipse(sx + 21, sy + 9, 5, 6, 0.2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Aranha no peito
+      ctx.fillStyle = '#e74c3c';
+      ctx.beginPath();
+      ctx.arc(sx + 16, sy + 20, 4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = '#e74c3c';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(sx + 16, sy + 16);
+      ctx.lineTo(sx + 16, sy + 24);
+      ctx.moveTo(sx + 12, sy + 18);
+      ctx.lineTo(sx + 20, sy + 22);
+      ctx.moveTo(sx + 20, sy + 18);
+      ctx.lineTo(sx + 12, sy + 22);
+      ctx.stroke();
+
+      // Pernas
+      ctx.fillStyle = '#2d3436';
+      ctx.fillRect(sx + 8, sy + 30, 7, 10);
+      ctx.fillRect(sx + 17, sy + 30, 7, 10);
+
+      // Braços
+      ctx.fillStyle = '#c0392b';
+      ctx.fillRect(sx + 1, sy + 14, 6, 12);
+      ctx.fillRect(sx + 25, sy + 14, 6, 12);
+
+      // Mãos
+      ctx.fillStyle = '#2d3436';
+      ctx.beginPath();
+      ctx.arc(sx + 4, sy + 26, 3.5, 0, Math.PI * 2);
+      ctx.arc(sx + 28, sy + 26, 3.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.restore();
+    }
+
+    function drawGoal() {
+      const sx = goalX - cameraX;
+      if (sx < -50 || sx > canvas.width + 50) return;
+
+      if (hasPrincess) {
+        // Vestido vermelho
+        ctx.fillStyle = '#c0392b';
+        ctx.beginPath();
+        ctx.moveTo(sx + 10, 380);
+        ctx.lineTo(sx - 15, 420);
+        ctx.lineTo(sx + 35, 420);
+        ctx.closePath();
+        ctx.fill();
+
+        // Corpo
+        ctx.fillStyle = '#e74c3c';
+        ctx.fillRect(sx + 4, 355, 20, 28);
+
+        // Cabeça
+        ctx.fillStyle = '#f5cba7';
+        ctx.beginPath();
+        ctx.arc(sx + 14, 345, 12, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Cabelo castanho claro
+        ctx.fillStyle = '#d4a574';
+        ctx.beginPath();
+        ctx.ellipse(sx + 14, 340, 14, 10, 0, Math.PI, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(sx + 2, 340, 6, 20);
+        ctx.fillRect(sx + 20, 340, 6, 20);
+
+        // Brincos de esmeralda
+        ctx.fillStyle = '#00b894';
+        ctx.beginPath();
+        ctx.arc(sx + 4, 348, 3.5, 0, Math.PI * 2);
+        ctx.arc(sx + 24, 348, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#55efc4';
+        ctx.beginPath();
+        ctx.arc(sx + 3, 347, 1.5, 0, Math.PI * 2);
+        ctx.arc(sx + 23, 347, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Olhos
+        ctx.fillStyle = '#2d3436';
+        ctx.beginPath();
+        ctx.arc(sx + 10, 345, 2, 0, Math.PI * 2);
+        ctx.arc(sx + 18, 345, 2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sorriso
+        ctx.strokeStyle = '#e17055';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.arc(sx + 14, 349, 4, 0.2, Math.PI - 0.2);
+        ctx.stroke();
+
+        // Braços
+        ctx.fillStyle = '#f5cba7';
+        ctx.fillRect(sx - 2, 360, 6, 16);
+        ctx.fillRect(sx + 24, 360, 6, 16);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 14px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Princesa!', sx + 14, 435);
+      } else {
+        // Bandeira
+        ctx.fillStyle = '#2d3436';
+        ctx.fillRect(sx + 10, 340, 6, 80);
+
+        ctx.fillStyle = '#f1c40f';
+        ctx.beginPath();
+        ctx.moveTo(sx + 16, 340);
+        ctx.lineTo(sx + 50, 355);
+        ctx.lineTo(sx + 16, 370);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.fillStyle = '#fff';
+        ctx.font = 'bold 12px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Meta!', sx + 20, 435);
+      }
+    }
+
+    function drawParticles() {
+      for (const p of particles) {
+        ctx.globalAlpha = Math.max(0, p.life / 40);
+        ctx.fillStyle = p.color;
+        ctx.beginPath();
+        ctx.arc(p.x - cameraX, p.y, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    function drawUI() {}
+
+    // ---------- Loop principal ----------
+    function update() {
+      if (gameState !== 'playing') return;
+
+      updatePlayer();
+      updateEnemies();
+      checkSpikes();
+      checkGoal();
+      updateParticles();
+    }
+
+    function draw() {
+      drawBackground();
+      drawPlatforms();
+      drawSpikes();
+      drawEnemies();
+      drawGoal();
+      drawPlayer();
+      drawParticles();
+      drawUI();
+    }
+
+    function gameLoop() {
+      update();
+      draw();
+      requestAnimationFrame(gameLoop);
+    }
+
+    // ---------- Início ----------
+    loadLevel(1);
+    updateHUD();
+    showOverlay('🕷️ blá blá blá', 'Miles Morales precisa salvar a Princesa!\n3 fases • 2 vidas • Use as setas e espaço', 'Começar Aventura');
+    gameLoop();
+  </script>
+</body>
+</html>
